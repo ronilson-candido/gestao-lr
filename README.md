@@ -47,7 +47,7 @@ Preencha:
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://SEU-PROJETO.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=SUA-ANON-KEY
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=SUA-PUBLISHABLE-KEY
 ```
 
 > Ambas as chaves estão em **Supabase Dashboard → Project Settings → API**.
@@ -130,7 +130,7 @@ git push -u origin main
 Em **Project Settings → Environment Variables**, adicione:
 
 - `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 
 ### 4. Configurar Redirect URLs no Supabase
 
