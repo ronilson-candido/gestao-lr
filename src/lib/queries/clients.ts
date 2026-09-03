@@ -31,11 +31,10 @@ export async function listClients(
   let query = supabase
     .from("clients")
     .select(
-      `
-        id, name, cpf, created_at, updated_at, created_by, updated_by,
-        operations:operations(count, payment_status)
-      `,
-      { count: "exact" },
+      "id, name, cpf, created_at, updated_at, created_by, updated_by",
+      {
+        count: "exact",
+      },
     )
     .order("created_at", { ascending: false })
     .range(from, to);
@@ -84,18 +83,43 @@ export async function listClients(
     query = query.in("id", clientIdsFromOps);
   }
 
+  // Busca a página de clientes e, em paralelo, os IDs das operações dessa página
+  // para preencher as estatísticas. Duas queries em paralelo (mesma connection pool).
   const { data, count, error } = await query;
   if (error) {
-    throw new Error("Não foi possível carregar os clientes.");
+    console.error("[listClients]", error);
+    throw new Error(
+      `Não foi possível carregar os clientes: ${error.message} (code=${error.code})`,
+    );
+  }
+
+  const pageIds = (data ?? []).map((r) => r.id);
+
+  // Stats: count e breakdown por status para os clientes dessa página.
+  const stats = new Map<string, { total: number; pending: number; paid: number }>();
+  if (pageIds.length > 0) {
+    const { data: opsStats, error: statsError } = await supabase
+      .from("operations")
+      .select("client_id, payment_status")
+      .in("client_id", pageIds);
+
+    if (statsError) {
+      console.error("[listClients stats]", statsError);
+    } else {
+      for (const o of opsStats ?? []) {
+        const s = stats.get(o.client_id) ?? { total: 0, pending: 0, paid: 0 };
+        s.total += 1;
+        if (o.payment_status === "pendente") s.pending += 1;
+        else s.paid += 1;
+        stats.set(o.client_id, s);
+      }
+    }
   }
 
   const total = count ?? 0;
 
   const mapped: ClientWithStats[] = (data ?? []).map((row) => {
-    // row.operations é um array (count, payment_status) apenas se usarmos `count` separado.
-    // Como pedimos só count, vem como objeto { count: N }.
-    const opsCount = (row as unknown as { operations: { count: number }[] })
-      .operations?.[0]?.count ?? 0;
+    const s = stats.get(row.id) ?? { total: 0, pending: 0, paid: 0 };
     return {
       id: row.id,
       name: row.name,
@@ -104,34 +128,11 @@ export async function listClients(
       updated_at: row.updated_at,
       created_by: row.created_by,
       updated_by: row.updated_by,
-      operations_count: opsCount,
-      pending_operations: 0,
-      paid_operations: 0,
+      operations_count: s.total,
+      pending_operations: s.pending,
+      paid_operations: s.paid,
     };
   });
-
-  // Se a busca por status for feita, calculamos pendentes/pagos por cliente.
-  if (mapped.length > 0 && params.payment_status) {
-    const ids = mapped.map((c) => c.id);
-    const { data: opsDetail } = await supabase
-      .from("operations")
-      .select("client_id, payment_status")
-      .in("client_id", ids);
-    const groups = new Map<string, { p: number; g: number }>();
-    for (const o of opsDetail ?? []) {
-      const g = groups.get(o.client_id) ?? { p: 0, g: 0 };
-      if (o.payment_status === "pendente") g.p++;
-      else g.g++;
-      groups.set(o.client_id, g);
-    }
-    for (const c of mapped) {
-      const g = groups.get(c.id);
-      if (g) {
-        c.pending_operations = g.p;
-        c.paid_operations = g.g;
-      }
-    }
-  }
 
   return {
     data: mapped,
